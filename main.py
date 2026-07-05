@@ -1,13 +1,14 @@
 import asyncio
+from io import BytesIO
 from pathlib import Path
 import tempfile
-from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 import astrbot.api.message_components as Comp
 from astrbot.api.star import Context, Star, register
+from PIL import Image, ImageSequence
 
 try:
     from .openai_img_urls_patch import (
@@ -27,34 +28,14 @@ DOWNLOAD_TIMEOUT_SECONDS = 45
 DOWNLOAD_BACKOFF_BASE_SECONDS = 2
 DOWNLOAD_CHUNK_SIZE = 1024 * 256
 DOWNLOAD_USER_AGENT = "astrbot-plugin-url2img/1.0"
-IMAGE_SUFFIXES = {
-    ".apng",
-    ".avif",
-    ".bmp",
-    ".gif",
-    ".jpeg",
-    ".jpg",
-    ".png",
-    ".svg",
-    ".webp",
-}
-CONTENT_TYPE_SUFFIXES = {
-    "image/apng": ".apng",
-    "image/avif": ".avif",
-    "image/bmp": ".bmp",
-    "image/gif": ".gif",
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/svg+xml": ".svg",
-    "image/webp": ".webp",
-}
+JPEG_QUALITY = 85
 
 
 @register(
     "astrbot_plugin_url2img",
     "facilisvelox",
-    "将模型回复中的图片 URL 自动转换为图片消息；已生成图片只重试下载，不重复触发生图。",
-    "1.0.5",
+    "将模型回复中的图片 URL 自动转换为 JPEG 图片消息；已生成图片只重试下载，不重复触发生图。",
+    "1.0.6",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context):
@@ -133,34 +114,52 @@ async def _image_from_url_with_download_retries(url: str):
 def _download_image_to_temp_file(url: str) -> str:
     request = Request(url, headers={"User-Agent": DOWNLOAD_USER_AGENT})
     with urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
-        suffix = _image_suffix_for_download(url, response.headers.get("Content-Type"))
+        image_bytes = _read_response_bytes(response)
         output_dir = Path(tempfile.gettempdir()) / "astrbot_plugin_url2img"
         output_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
             prefix="url2img_",
-            suffix=suffix,
+            suffix=".jpg",
             dir=output_dir,
             delete=False,
         ) as tmp_file:
-            while True:
-                chunk = response.read(DOWNLOAD_CHUNK_SIZE)
-                if not chunk:
-                    break
-                tmp_file.write(chunk)
+            _write_jpeg_image(image_bytes, tmp_file)
             return tmp_file.name
 
 
-def _image_suffix_for_download(url: str, content_type: str | None) -> str:
-    path_suffix = Path(unquote(urlsplit(url).path)).suffix.lower()
-    if path_suffix in IMAGE_SUFFIXES:
-        return path_suffix
+def _read_response_bytes(response) -> bytes:
+    chunks = []
+    while True:
+        chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
 
-    if content_type:
-        media_type = content_type.split(";", 1)[0].strip().lower()
-        if media_type in CONTENT_TYPE_SUFFIXES:
-            return CONTENT_TYPE_SUFFIXES[media_type]
 
-    return ".img"
+def _write_jpeg_image(image_bytes: bytes, output_file) -> None:
+    with Image.open(BytesIO(image_bytes)) as image:
+        frame = next(ImageSequence.Iterator(image)).copy()
+        jpeg_image = _image_for_jpeg(frame)
+        jpeg_image.save(
+            output_file,
+            format="JPEG",
+            quality=JPEG_QUALITY,
+            optimize=True,
+            progressive=True,
+        )
+
+
+def _image_for_jpeg(image: Image.Image) -> Image.Image:
+    if image.mode in ("RGBA", "LA") or (
+        image.mode == "P" and "transparency" in image.info
+    ):
+        rgba_image = image.convert("RGBA")
+        background = Image.new("RGBA", rgba_image.size, (255, 255, 255, 255))
+        background.alpha_composite(rgba_image)
+        return background.convert("RGB")
+
+    return image.convert("RGB")
 
 
 def _download_retry_delay(attempt: int) -> int:

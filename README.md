@@ -12,7 +12,7 @@
 - 兼容部分 OpenAI 风格服务返回的 `choices[].img_urls`
 - 对已生成的图片 URL 增加持续下载重试，避免因跨区下载慢而重复触发生图
 - 保留非 URL 文本和原有消息链中的非文本组件
-- 不压缩、不改写图片内容，下载成功后按原图发送
+- 无论源图片 URL 是 PNG、WebP、GIF、JPEG 等格式，下载成功后都会统一转换为较小的 JPEG 文件再发送
 
 ## 安装
 
@@ -23,6 +23,12 @@ AstrBot/data/plugins/astrbot_plugin_url2img
 ```
 
 然后在 AstrBot WebUI 的插件管理页重载插件，或重启 AstrBot。
+
+本插件转换图片格式需要 Pillow。如果插件环境没有自动安装依赖，请在 AstrBot 的 Python 环境中安装：
+
+```bash
+pip install -r requirements.txt
+```
 
 ## 使用方式
 
@@ -50,7 +56,7 @@ https://example.com/images/result.png
 - 单次下载超时时间为 45 秒
 - 重试间隔逐步增加，最长 20 秒
 - 重试只针对图片下载，不会再次调用模型或智能体生成图片
-- 下载成功后发送原始图片文件，不做压缩或格式转换
+- 下载成功后会取图片第一帧，透明背景以白色合成，并以 JPEG 质量 85、优化渐进编码写入临时文件后发送
 
 ## 说明
 
