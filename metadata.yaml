@@ -2,7 +2,7 @@ name: astrbot_plugin_url2img
 display_name: URL 转图片
 desc: 将模型回复中的图片 URL 自动转换为图片消息。
 short_desc: 自动把回复里的图片 URL 发送成图片。
-version: v1.0.1
+version: v1.0.2
 author: facilisvelox
 repo: https://github.com/facilisvelox/astrbot_plugin_url2img
 license: MIT

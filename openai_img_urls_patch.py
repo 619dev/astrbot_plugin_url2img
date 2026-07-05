@@ -9,6 +9,8 @@ from astrbot.api import logger
 
 
 _PATCH_MARK = "_url2img_img_urls_patch_installed"
+_PATCH_VERSION = 2
+_PATCH_VERSION_ATTR = "_url2img_img_urls_patch_version"
 _ORIGINAL_QUERY_ATTR = "_url2img_original_query"
 
 
@@ -22,8 +24,13 @@ def install_openai_img_urls_patch() -> bool:
         logger.warning(f"url2img failed to import OpenAI provider patch targets: {exc}")
         return False
 
-    if getattr(ProviderOpenAIOfficial, _PATCH_MARK, False):
+    if (
+        getattr(ProviderOpenAIOfficial, _PATCH_MARK, False)
+        and getattr(ProviderOpenAIOfficial, _PATCH_VERSION_ATTR, None) == _PATCH_VERSION
+    ):
         return True
+    if getattr(ProviderOpenAIOfficial, _PATCH_MARK, False):
+        uninstall_openai_img_urls_patch()
 
     original_query = ProviderOpenAIOfficial._query
 
@@ -83,6 +90,7 @@ def install_openai_img_urls_patch() -> bool:
     ProviderOpenAIOfficial._query = patched_query
     ProviderOpenAIOfficial.__init__ = patched_init
     setattr(ProviderOpenAIOfficial, _PATCH_MARK, True)
+    setattr(ProviderOpenAIOfficial, _PATCH_VERSION_ATTR, _PATCH_VERSION)
     logger.info("url2img installed OpenAI choice.img_urls compatibility patch.")
     return True
 
@@ -104,6 +112,8 @@ def uninstall_openai_img_urls_patch() -> None:
     if hasattr(ProviderOpenAIOfficial, "_url2img_original_init"):
         delattr(ProviderOpenAIOfficial, "_url2img_original_init")
     setattr(ProviderOpenAIOfficial, _PATCH_MARK, False)
+    if hasattr(ProviderOpenAIOfficial, _PATCH_VERSION_ATTR):
+        delattr(ProviderOpenAIOfficial, _PATCH_VERSION_ATTR)
 
 
 def _wrap_completion_create(provider: Any) -> None:
@@ -112,16 +122,22 @@ def _wrap_completion_create(provider: Any) -> None:
         return
 
     original_create = getattr(completions, "create", None)
-    if original_create is None or getattr(original_create, "_url2img_wrapped", False):
+    if original_create is None:
         return
+    if getattr(original_create, "_url2img_wrapped", False):
+        if getattr(original_create, "_url2img_wrapper_version", None) == _PATCH_VERSION:
+            return
+        original_create = getattr(original_create, "__wrapped__", original_create)
 
     @wraps(original_create)
     async def wrapped_create(*args, **kwargs):
         completion = await original_create(*args, **kwargs)
+        _inject_img_urls_as_message_content(completion)
         provider._url2img_last_completion = completion
         return completion
 
     setattr(wrapped_create, "_url2img_wrapped", True)
+    setattr(wrapped_create, "_url2img_wrapper_version", _PATCH_VERSION)
 
     try:
         completions.create = wrapped_create
@@ -143,6 +159,41 @@ def _extract_img_urls(completion: Any) -> list[str]:
         urls.extend(_coerce_str_list(getattr(message, "image_urls", None)))
 
     return _dedupe(urls)
+
+
+def _inject_img_urls_as_message_content(completion: Any) -> None:
+    choices = getattr(completion, "choices", None)
+    if not isinstance(choices, Iterable):
+        return
+
+    for choice in choices:
+        message = getattr(choice, "message", None)
+        if message is None:
+            continue
+        content = getattr(message, "content", None)
+        if isinstance(content, str) and content.strip():
+            continue
+
+        urls = _dedupe(
+            [
+                *_coerce_str_list(getattr(choice, "img_urls", None)),
+                *_coerce_str_list(getattr(choice, "image_urls", None)),
+                *_coerce_str_list(getattr(message, "img_urls", None)),
+                *_coerce_str_list(getattr(message, "image_urls", None)),
+            ],
+        )
+        valid_urls = [
+            url
+            for url in urls
+            if isinstance(url, str) and url.startswith(("http://", "https://"))
+        ]
+        if not valid_urls:
+            continue
+
+        try:
+            message.content = "\n".join(valid_urls)
+        except Exception as exc:
+            logger.warning(f"url2img failed to inject img_urls into content: {exc}")
 
 
 def _coerce_str_list(value: Any) -> list[str]:

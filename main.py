@@ -21,7 +21,7 @@ except ImportError:
     "astrbot_plugin_url2img",
     "facilisvelox",
     "将模型回复中的图片 URL 自动转换为图片消息。",
-    "1.0.1",
+    "1.0.2",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context):
