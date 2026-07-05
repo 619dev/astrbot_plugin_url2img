@@ -9,7 +9,7 @@ from astrbot.api import logger
 
 
 _PATCH_MARK = "_url2img_img_urls_patch_installed"
-_PATCH_VERSION = 2
+_PATCH_VERSION = 3
 _PATCH_VERSION_ATTR = "_url2img_img_urls_patch_version"
 _ORIGINAL_QUERY_ATTR = "_url2img_original_query"
 
@@ -43,7 +43,7 @@ def install_openai_img_urls_patch() -> bool:
                 self,
                 payloads,
                 tools,
-                request_max_retries=request_max_retries,
+                request_max_retries=1,
             )
         except Exception as exc:
             if "OpenAI completion has no usable output" not in str(exc):

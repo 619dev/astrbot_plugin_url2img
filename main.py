@@ -23,7 +23,6 @@ except ImportError:
     from url_parser import SegmentKind, split_image_urls
 
 
-DOWNLOAD_RETRIES = 15
 DOWNLOAD_TIMEOUT_SECONDS = 45
 DOWNLOAD_BACKOFF_BASE_SECONDS = 2
 DOWNLOAD_CHUNK_SIZE = 1024 * 256
@@ -54,8 +53,8 @@ CONTENT_TYPE_SUFFIXES = {
 @register(
     "astrbot_plugin_url2img",
     "facilisvelox",
-    "将模型回复中的图片 URL 自动转换为图片消息。",
-    "1.0.3",
+    "将模型回复中的图片 URL 自动转换为图片消息；已生成图片只重试下载，不重复触发生图。",
+    "1.0.5",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context):
@@ -112,8 +111,8 @@ def _plain_text(component) -> str | None:
 
 
 async def _image_from_url_with_download_retries(url: str):
-    last_error: Exception | None = None
-    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+    attempt = 1
+    while True:
         try:
             path = await asyncio.to_thread(_download_image_to_temp_file, url)
             if path:
@@ -123,19 +122,12 @@ async def _image_from_url_with_download_retries(url: str):
                     )
                 return Comp.Image.fromFileSystem(path)
         except Exception as exc:
-            last_error = exc
             logger.warning(
-                f"url2img image download attempt {attempt}/{DOWNLOAD_RETRIES} failed: {url}; {exc}"
+                f"url2img image download attempt {attempt} failed, will retry: {url}; {exc}"
             )
 
-        if attempt < DOWNLOAD_RETRIES:
-            await asyncio.sleep(_download_retry_delay(attempt))
-
-    logger.warning(
-        f"url2img failed to download image after {DOWNLOAD_RETRIES} attempt(s), "
-        f"falling back to URL: {url}; last error: {last_error}"
-    )
-    return Comp.Image.fromURL(url)
+        await asyncio.sleep(_download_retry_delay(attempt))
+        attempt += 1
 
 
 def _download_image_to_temp_file(url: str) -> str:
