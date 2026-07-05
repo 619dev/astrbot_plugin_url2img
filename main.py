@@ -4,8 +4,16 @@ import astrbot.api.message_components as Comp
 from astrbot.api.star import Context, Star, register
 
 try:
+    from .openai_img_urls_patch import (
+        install_openai_img_urls_patch,
+        uninstall_openai_img_urls_patch,
+    )
     from .url_parser import SegmentKind, split_image_urls
 except ImportError:
+    from openai_img_urls_patch import (
+        install_openai_img_urls_patch,
+        uninstall_openai_img_urls_patch,
+    )
     from url_parser import SegmentKind, split_image_urls
 
 
@@ -13,11 +21,14 @@ except ImportError:
     "astrbot_plugin_url2img",
     "facilisvelox",
     "将模型回复中的图片 URL 自动转换为图片消息。",
-    "1.0.0",
+    "1.0.1",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
+
+    async def initialize(self):
+        install_openai_img_urls_patch()
 
     @filter.on_decorating_result()
     async def convert_image_urls(self, event: AstrMessageEvent):
@@ -50,6 +61,9 @@ class Url2ImgPlugin(Star):
         if converted_count:
             result.chain = new_chain
             logger.info(f"url2img converted {converted_count} image URL(s).")
+
+    async def terminate(self):
+        uninstall_openai_img_urls_patch()
 
 
 def _plain_text(component) -> str | None:

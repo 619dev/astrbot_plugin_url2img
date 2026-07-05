@@ -9,6 +9,7 @@
 - 支持文本中的裸图片 URL，例如 `https://example.com/a.png`
 - 支持 Markdown 图片语法，例如 `![alt](https://example.com/a.png)`
 - 支持图片 URL 出现在回复正文末尾
+- 兼容部分 OpenAI 风格服务返回的 `choices[].img_urls`
 - 保留非 URL 文本和原有消息链中的非文本组件
 - 不依赖第三方 Python 包
 
@@ -40,6 +41,8 @@ https://example.com/images/result.png
 ## 说明
 
 插件通过 AstrBot 的 `on_decorating_result` 事件钩子工作，只修改即将发送的结果链，不会拦截用户消息，也不会主动请求模型。
+
+对于某些 OpenAI 兼容服务，图片生成结果可能不是文本，而是放在原始响应的 `choices[0].img_urls` 中。AstrBot v4.26.2 会把这种“content 为空但 img_urls 有值”的响应判定为无可用输出。本插件会在加载时安装一个很小的兼容补丁，把这类 `img_urls` 包装成图片消息链，避免图片生成成功却不发图。
 
 转换规则：
 
