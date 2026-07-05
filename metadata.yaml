@@ -1,0 +1,28 @@
+name: astrbot_plugin_url2img
+display_name: URL 转图片
+desc: 将模型回复中的图片 URL 自动转换为图片消息。
+short_desc: 自动把回复里的图片 URL 发送成图片。
+version: v1.0.0
+author: facilisvelox
+repo: https://github.com/facilisvelox/astrbot_plugin_url2img
+license: MIT
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - qq_official_webhook
+  - telegram
+  - wecom
+  - wecom_ai_bot
+  - lark
+  - dingtalk
+  - discord
+  - slack
+  - kook
+  - vocechat
+  - weixin_official_account
+  - weixin_oc
+  - satori
+  - misskey
+  - line
+  - matrix
+  - mattermost
