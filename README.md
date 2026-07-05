@@ -39,13 +39,23 @@ https://example.com/images/result.png
 这是生成结果：![result](https://example.com/render?id=123)
 ```
 
+## 下载重试
+
+当模型或智能体已经成功生成图片，并在回复中返回图片 URL 时，插件会先尝试把图片下载到 AstrBot 所在服务器的临时目录，再发送本地图片文件。这样可以避免 NapCat 或平台适配器直接跨区拉取图片时，因为网络慢或短暂超时导致发送失败。
+
+默认下载策略：
+
+- 每个图片 URL 最多下载 15 次
+- 单次下载超时时间为 45 秒
+- 重试间隔逐步增加，最长 20 秒
+- 重试只针对图片下载，不会再次调用模型或智能体生成图片
+- 下载最终失败时，会回退为原始 URL 图片组件并记录日志
+
 ## 说明
 
 插件通过 AstrBot 的 `on_decorating_result` 事件钩子工作，只修改即将发送的结果链，不会拦截用户消息，也不会主动请求模型。
 
 对于某些 OpenAI 兼容服务，图片生成结果可能不是文本，而是放在原始响应的 `choices[0].img_urls` 中。AstrBot v4.26.2 会把这种“content 为空但 img_urls 有值”的响应判定为无可用输出。本插件会在加载时安装一个很小的兼容补丁，在 AstrBot 判空之前把这类 `img_urls` 注入为 URL 文本，再由本插件转换成图片消息，避免图片生成成功却不发图或留下误导性的空输出错误日志。
-
-转换图片 URL 时，插件会先在 AstrBot 侧下载图片并重试最多 15 次，下载成功后发送本地图片文件。这个重试只发生在下载阶段，不会再次请求模型或智能体生成图片；如果下载最终仍失败，插件会回退为原始 URL 图片组件并记录日志。
 
 转换规则：
 
@@ -95,7 +105,7 @@ https://example.com/images/result.png
 语法检查：
 
 ```bash
-python3 -m py_compile url_parser.py main.py
+python3 -m py_compile url_parser.py main.py openai_img_urls_patch.py
 ```
 
 运行解析器样例测试：
