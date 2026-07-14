@@ -38,7 +38,7 @@ OUTPUT_MODE_DOWNLOAD = "download_and_send"
     "astrbot_plugin_url2img",
     "facilisvelox",
     "将模型回复中的图片 URL 压缩为 JPEG 图片消息，并始终保留原始图片网址。",
-    "1.1.0",
+    "1.1.1",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context, config=None):

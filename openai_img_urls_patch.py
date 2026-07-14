@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from functools import wraps
+import json
+import re
 from typing import Any
 
 import astrbot.api.message_components as Comp
@@ -9,7 +11,7 @@ from astrbot.api import logger
 
 
 _PATCH_MARK = "_url2img_img_urls_patch_installed"
-_PATCH_VERSION = 4
+_PATCH_VERSION = 5
 _PATCH_VERSION_ATTR = "_url2img_img_urls_patch_version"
 _ORIGINAL_QUERY_ATTR = "_url2img_original_query"
 
@@ -37,19 +39,22 @@ def install_openai_img_urls_patch() -> bool:
     @wraps(original_query)
     async def patched_query(self, payloads: dict, tools, *, request_max_retries=None):
         self._url2img_last_completion = None
+        _disable_openai_sdk_retries(self)
         _wrap_completion_create(self)
         try:
             return await original_query(
                 self,
                 payloads,
                 tools,
-                # Image generation is not idempotent: zero retries means this
-                # command reaches the upstream service at most once.
-                request_max_retries=0,
+                # AstrBot 4.26.6 defines this value as total attempts and
+                # clamps it to a minimum of one.
+                request_max_retries=1,
             )
         except Exception as exc:
             completion = getattr(self, "_url2img_last_completion", None)
-            image_urls = _extract_img_urls(completion)
+            image_urls = _dedupe(
+                [*_extract_img_urls(completion), *_extract_img_urls_from_error(exc)]
+            )
             valid_urls = [
                 url
                 for url in image_urls
@@ -87,6 +92,7 @@ def install_openai_img_urls_patch() -> bool:
     @wraps(original_client_create)
     def patched_init(self, *args, **kwargs):
         original_client_create(self, *args, **kwargs)
+        _disable_openai_sdk_retries(self)
         _wrap_completion_create(self)
 
     setattr(ProviderOpenAIOfficial, _ORIGINAL_QUERY_ATTR, original_query)
@@ -97,6 +103,17 @@ def install_openai_img_urls_patch() -> bool:
     setattr(ProviderOpenAIOfficial, _PATCH_VERSION_ATTR, _PATCH_VERSION)
     logger.info("url2img installed OpenAI choice.img_urls compatibility patch.")
     return True
+
+
+def _disable_openai_sdk_retries(provider: Any) -> None:
+    """Disable the OpenAI SDK's own retries for non-idempotent image requests."""
+    client = getattr(provider, "client", None)
+    if client is None:
+        return
+    try:
+        client.max_retries = 0
+    except Exception as exc:
+        logger.warning(f"url2img failed to disable OpenAI SDK retries: {exc}")
 
 
 def uninstall_openai_img_urls_patch() -> None:
@@ -162,7 +179,69 @@ def _extract_img_urls(completion: Any) -> list[str]:
         urls.extend(_coerce_str_list(getattr(message, "img_urls", None)))
         urls.extend(_coerce_str_list(getattr(message, "image_urls", None)))
 
+    # Also cover additional fields preserved by Pydantic at deeper levels.
+    urls.extend(_extract_img_urls_deep(completion))
     return _dedupe(urls)
+
+
+def _extract_img_urls_from_error(error: Exception) -> list[str]:
+    """Recover non-standard image URL fields attached to an API exception."""
+    urls: list[str] = []
+    for attr in ("completion", "result", "body"):
+        urls.extend(_extract_img_urls_deep(getattr(error, attr, None)))
+
+    response = getattr(error, "response", None)
+    if response is not None:
+        urls.extend(_extract_img_urls_deep(response))
+        response_text = getattr(response, "text", None)
+        urls.extend(_extract_img_urls_deep(response_text))
+    return _dedupe(urls)
+
+
+def _extract_img_urls_deep(value: Any, *, image_field: bool = False) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        if not image_field:
+            try:
+                return _extract_img_urls_deep(json.loads(value))
+            except (json.JSONDecodeError, TypeError):
+                # Some gateways put a JSON fragment in the exception text.
+                if not re.search(r"(?:img|image)_urls?", value, re.IGNORECASE):
+                    return []
+        return re.findall(r"https?://[^\s\"'<>\\]+", value)
+    if isinstance(value, dict):
+        urls: list[str] = []
+        for key, item in value.items():
+            key_is_image = str(key).lower() in {
+                "img_url",
+                "img_urls",
+                "image_url",
+                "image_urls",
+            }
+            urls.extend(
+                _extract_img_urls_deep(item, image_field=image_field or key_is_image)
+            )
+        return urls
+    if isinstance(value, Iterable):
+        urls: list[str] = []
+        for item in value:
+            urls.extend(_extract_img_urls_deep(item, image_field=image_field))
+        return urls
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return _extract_img_urls_deep(model_dump(), image_field=image_field)
+        except Exception:
+            return []
+    json_method = getattr(value, "json", None)
+    if callable(json_method):
+        try:
+            return _extract_img_urls_deep(json_method(), image_field=image_field)
+        except Exception:
+            return []
+    return []
 
 
 def _inject_img_urls_as_message_content(completion: Any) -> None:
