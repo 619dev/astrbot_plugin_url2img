@@ -25,8 +25,6 @@ except ImportError:
 
 
 DOWNLOAD_TIMEOUT_SECONDS = 45
-DOWNLOAD_MAX_ATTEMPTS = 3
-DOWNLOAD_BACKOFF_BASE_SECONDS = 2
 DOWNLOAD_CHUNK_SIZE = 1024 * 256
 DOWNLOAD_USER_AGENT = "astrbot-plugin-url2img/1.0"
 JPEG_QUALITY = 85
@@ -36,7 +34,7 @@ JPEG_QUALITY = 85
     "astrbot_plugin_url2img",
     "facilisvelox",
     "将模型回复中的图片 URL 压缩为 JPEG 图片消息，并始终保留原始图片网址。",
-    "1.0.7",
+    "1.0.8",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context):
@@ -70,9 +68,7 @@ class Url2ImgPlugin(Star):
                 if segment.kind == SegmentKind.IMAGE_URL:
                     # Keep the source URL first so it remains the primary output.
                     new_chain.append(Comp.Plain(segment.value))
-                    image_component = await _image_from_url_with_download_retries(
-                        segment.value
-                    )
+                    image_component = await _image_from_url_once(segment.value)
                     if image_component is not None:
                         new_chain.append(image_component)
                         converted_count += 1
@@ -95,29 +91,16 @@ def _plain_text(component) -> str | None:
     return None
 
 
-async def _image_from_url_with_download_retries(url: str):
-    for attempt in range(1, DOWNLOAD_MAX_ATTEMPTS + 1):
-        try:
-            path = await asyncio.to_thread(_download_image_to_temp_file, url)
-            if path:
-                if attempt > 1:
-                    logger.info(
-                        f"url2img downloaded image after {attempt} attempt(s): {url}"
-                    )
-                return Comp.Image.fromFileSystem(path)
-        except Exception as exc:
-            if attempt < DOWNLOAD_MAX_ATTEMPTS:
-                logger.warning(
-                    f"url2img image download attempt {attempt} failed, will retry: {url}; {exc}"
-                )
-            else:
-                logger.warning(
-                    f"url2img image download failed after {attempt} attempt(s); "
-                    f"sending source URL only: {url}; {exc}"
-                )
-
-        if attempt < DOWNLOAD_MAX_ATTEMPTS:
-            await asyncio.sleep(_download_retry_delay(attempt))
+async def _image_from_url_once(url: str):
+    try:
+        path = await asyncio.to_thread(_download_image_to_temp_file, url)
+        if path:
+            return Comp.Image.fromFileSystem(path)
+    except Exception as exc:
+        logger.warning(
+            f"url2img image download or compression failed; "
+            f"sending source URL only: {url}; {exc}"
+        )
 
     return None
 
@@ -171,7 +154,3 @@ def _image_for_jpeg(image: Image.Image) -> Image.Image:
         return background.convert("RGB")
 
     return image.convert("RGB")
-
-
-def _download_retry_delay(attempt: int) -> int:
-    return min(DOWNLOAD_BACKOFF_BASE_SECONDS * attempt, 20)

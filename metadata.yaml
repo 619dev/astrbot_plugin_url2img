@@ -2,7 +2,7 @@ name: astrbot_plugin_url2img
 display_name: URL 转图片
 desc: 将模型回复中的图片 URL 下载并压缩为 JPEG 图片消息，同时无条件保留原始图片网址作为保底。
 short_desc: 图片压缩为 JPG 发送，并始终保留原网址。
-version: v1.0.7
+version: v1.0.8
 author: facilisvelox
 repo: https://github.com/619dev/astrbot_plugin_url2img
 license: MIT
