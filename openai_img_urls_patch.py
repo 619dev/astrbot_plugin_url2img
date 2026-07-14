@@ -11,13 +11,26 @@ from astrbot.api import logger
 
 
 _PATCH_MARK = "_url2img_img_urls_patch_installed"
-_PATCH_VERSION = 5
+_PATCH_VERSION = 6
 _PATCH_VERSION_ATTR = "_url2img_img_urls_patch_version"
 _ORIGINAL_QUERY_ATTR = "_url2img_original_query"
+_REQUEST_TIMEOUT_SECONDS = 600.0
 
 
-def install_openai_img_urls_patch() -> bool:
+def install_openai_img_urls_patch(request_timeout_seconds: int | float = 600) -> bool:
     """Let AstrBot treat OpenAI-compatible ``choice.img_urls`` as usable output."""
+    global _REQUEST_TIMEOUT_SECONDS
+    try:
+        configured_timeout = float(request_timeout_seconds)
+        if configured_timeout <= 0:
+            raise ValueError
+        _REQUEST_TIMEOUT_SECONDS = configured_timeout
+    except (TypeError, ValueError):
+        logger.warning(
+            f"url2img invalid request timeout {request_timeout_seconds!r}; using 600 seconds."
+        )
+        _REQUEST_TIMEOUT_SECONDS = 600.0
+
     try:
         from astrbot.core.message.message_event_result import MessageChain
         from astrbot.core.provider.entities import LLMResponse, TokenUsage
@@ -152,6 +165,10 @@ def _wrap_completion_create(provider: Any) -> None:
 
     @wraps(original_create)
     async def wrapped_create(*args, **kwargs):
+        # AstrBot's provider defaults to 120 seconds. Image services often
+        # finish just after that deadline, at which point their URL can no
+        # longer reach the client. This affects waiting only, not retry count.
+        kwargs.setdefault("timeout", _REQUEST_TIMEOUT_SECONDS)
         completion = await original_create(*args, **kwargs)
         _inject_img_urls_as_message_content(completion)
         provider._url2img_last_completion = completion

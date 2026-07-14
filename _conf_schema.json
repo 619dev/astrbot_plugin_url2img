@@ -14,5 +14,11 @@
     "type": "bool",
     "hint": "仅在“下载并发送”模式生效。开启后转为 JPEG；关闭后发送下载到的原始图片文件。",
     "default": true
+  },
+  "generation_timeout_seconds": {
+    "description": "生图请求超时（秒）",
+    "type": "int",
+    "hint": "等待上游返回图片 URL 的最长时间。只发送一次请求，不会因延长等待而重试。建议 300～900 秒。",
+    "default": 600
   }
 }

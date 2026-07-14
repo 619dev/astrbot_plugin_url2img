@@ -32,13 +32,14 @@ DOWNLOAD_USER_AGENT = "astrbot-plugin-url2img/1.0"
 JPEG_QUALITY = 85
 OUTPUT_MODE_URL_ONLY = "url_only"
 OUTPUT_MODE_DOWNLOAD = "download_and_send"
+DEFAULT_GENERATION_TIMEOUT_SECONDS = 600
 
 
 @register(
     "astrbot_plugin_url2img",
     "facilisvelox",
     "将模型回复中的图片 URL 压缩为 JPEG 图片消息，并始终保留原始图片网址。",
-    "1.1.1",
+    "1.1.2",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -46,7 +47,12 @@ class Url2ImgPlugin(Star):
         self.config = config if config is not None else {}
 
     async def initialize(self):
-        install_openai_img_urls_patch()
+        install_openai_img_urls_patch(
+            self.config.get(
+                "generation_timeout_seconds",
+                DEFAULT_GENERATION_TIMEOUT_SECONDS,
+            )
+        )
 
     @filter.on_decorating_result()
     async def convert_image_urls(self, event: AstrMessageEvent):
