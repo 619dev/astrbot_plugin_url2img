@@ -34,7 +34,7 @@ JPEG_QUALITY = 85
     "astrbot_plugin_url2img",
     "facilisvelox",
     "将模型回复中的图片 URL 压缩为 JPEG 图片消息，并始终保留原始图片网址。",
-    "1.0.8",
+    "1.0.9",
 )
 class Url2ImgPlugin(Star):
     def __init__(self, context: Context):

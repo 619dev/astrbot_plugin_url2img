@@ -9,7 +9,7 @@ from astrbot.api import logger
 
 
 _PATCH_MARK = "_url2img_img_urls_patch_installed"
-_PATCH_VERSION = 3
+_PATCH_VERSION = 4
 _PATCH_VERSION_ATTR = "_url2img_img_urls_patch_version"
 _ORIGINAL_QUERY_ATTR = "_url2img_original_query"
 
@@ -43,25 +43,23 @@ def install_openai_img_urls_patch() -> bool:
                 self,
                 payloads,
                 tools,
-                request_max_retries=1,
+                # Image generation is not idempotent: zero retries means this
+                # command reaches the upstream service at most once.
+                request_max_retries=0,
             )
         except Exception as exc:
-            if "OpenAI completion has no usable output" not in str(exc):
-                raise
-
             completion = getattr(self, "_url2img_last_completion", None)
             image_urls = _extract_img_urls(completion)
-            if not image_urls:
-                raise
-
             valid_urls = [
                 url
                 for url in image_urls
                 if isinstance(url, str) and url.startswith(("http://", "https://"))
             ]
-            if not valid_urls:
-                raise
-            chain = MessageChain(chain=[Comp.Plain("\n".join(valid_urls))])
+            # Provider exceptions trigger AstrBot's fallback-model loop. Never
+            # re-raise an image request: return recovered URLs when available,
+            # otherwise turn the failure into a terminal user-facing response.
+            output = "\n".join(valid_urls) if valid_urls else "生图失败"
+            chain = MessageChain(chain=[Comp.Plain(output)])
 
             response = LLMResponse(
                 role="assistant",
@@ -73,9 +71,15 @@ def install_openai_img_urls_patch() -> bool:
             if usage:
                 response.usage = _extract_usage(self, usage, TokenUsage)
 
-            logger.info(
-                f"url2img recovered {len(valid_urls)} image URL(s) from OpenAI choice.img_urls."
-            )
+            if valid_urls:
+                logger.info(
+                    f"url2img recovered {len(valid_urls)} image URL(s) after provider error."
+                )
+            else:
+                logger.warning(
+                    "url2img stopped image generation after one failed attempt; "
+                    f"fallback models will not be invoked: {type(exc).__name__}: {exc}"
+                )
             return response
 
     original_client_create = ProviderOpenAIOfficial.__init__
