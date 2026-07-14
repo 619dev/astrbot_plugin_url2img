@@ -1,6 +1,6 @@
 # astrbot_plugin_url2img
 
-一个轻量的 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 插件，用于把模型回复文本里的图片 URL 自动转换成图片消息发送。
+一个轻量的 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 插件，用于把模型回复文本里的图片 URL 下载、压缩成图片消息发送，并始终保留原始图片网址。
 
 适合接入会在回复末尾附带图片链接的模型、工作流或 Agent。插件会在 AstrBot 发送回复前处理结果链，因此图片 URL 不需要出现在用户消息或主结构体中，只要最终回复文本里有可识别的图片 URL，就会被转换。
 
@@ -10,9 +10,10 @@
 - 支持 Markdown 图片语法，例如 `![alt](https://example.com/a.png)`
 - 支持图片 URL 出现在回复正文末尾
 - 兼容部分 OpenAI 风格服务返回的 `choices[].img_urls`
-- 对已生成的图片 URL 增加持续下载重试，避免因跨区下载慢而重复触发生图
+- 对已生成的图片 URL 增加有限下载重试，避免因跨区下载慢而重复触发生图或阻塞回复
 - 保留非 URL 文本和原有消息链中的非文本组件
 - 无论源图片 URL 是 PNG、WebP、GIF、JPEG 等格式，下载成功后都会统一转换为较小的 JPEG 文件再发送
+- 无论图片下载和压缩是否成功，都会在回复中保留原始图片网址
 
 ## 安装
 
@@ -39,7 +40,7 @@ pip install -r requirements.txt
 https://example.com/images/result.png
 ```
 
-插件会把回复转换为“文本 + 图片”的消息链发送。Markdown 图片也会被识别：
+插件会把回复转换为“文本 + 原始网址 + 压缩图片”的消息链发送。Markdown 图片也会被识别：
 
 ```text
 这是生成结果：![result](https://example.com/render?id=123)
@@ -52,11 +53,12 @@ https://example.com/images/result.png
 默认下载策略：
 
 - 已拿到图片 URL 后不会再触发生图请求
-- 每个图片 URL 会持续重试下载，直到下载并准备好可发送文件
+- 每个图片 URL 最多尝试下载 3 次
 - 单次下载超时时间为 45 秒
 - 重试间隔逐步增加，最长 20 秒
 - 重试只针对图片下载，不会再次调用模型或智能体生成图片
 - 下载成功后会取图片第一帧，透明背景以白色合成，并以 JPEG 质量 85、优化渐进编码写入临时文件后发送
+- 下载或压缩失败时跳过图片消息，直接用原始图片网址保底；成功时也会附带该网址
 
 ## 说明
 
@@ -88,6 +90,7 @@ https://example.com/images/result.png
 
 ```text
 已完成，图片在这里：
+https://cdn.example.com/out.webp
 [图片消息]
 ```
 
@@ -102,8 +105,10 @@ https://example.com/images/result.png
 
 ```text
 第一张
+https://cdn.example.com/a.jpg
 [图片消息]
 第二张
+https://cdn.example.com/b
 [图片消息]
 ```
 
