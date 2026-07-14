@@ -1,0 +1,18 @@
+{
+  "output_mode": {
+    "description": "图片输出模式",
+    "type": "string",
+    "hint": "仅返回 URL 时不会下载任何图片文件；下载并发送时始终保留原始 URL，并附加图片消息。",
+    "options": [
+      "url_only",
+      "download_and_send"
+    ],
+    "default": "download_and_send"
+  },
+  "compress_image": {
+    "description": "压缩图片",
+    "type": "bool",
+    "hint": "仅在“下载并发送”模式生效。开启后转为 JPEG；关闭后发送下载到的原始图片文件。",
+    "default": true
+  }
+}
