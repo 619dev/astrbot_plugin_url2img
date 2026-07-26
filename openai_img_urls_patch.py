@@ -11,15 +11,21 @@ from astrbot.api import logger
 
 
 _PATCH_MARK = "_url2img_img_urls_patch_installed"
-_PATCH_VERSION = 6
+_PATCH_VERSION = 7
 _PATCH_VERSION_ATTR = "_url2img_img_urls_patch_version"
 _ORIGINAL_QUERY_ATTR = "_url2img_original_query"
 _REQUEST_TIMEOUT_SECONDS = 600.0
+_TRIGGER_WORD = "img"
+_TRIGGER_MODE = "prefix"
 
 
-def install_openai_img_urls_patch(request_timeout_seconds: int | float = 600) -> bool:
+def install_openai_img_urls_patch(
+    request_timeout_seconds: int | float = 600,
+    trigger_word: str = "img",
+    trigger_mode: str = "prefix",
+) -> bool:
     """Let AstrBot treat OpenAI-compatible ``choice.img_urls`` as usable output."""
-    global _REQUEST_TIMEOUT_SECONDS
+    global _REQUEST_TIMEOUT_SECONDS, _TRIGGER_WORD, _TRIGGER_MODE
     try:
         configured_timeout = float(request_timeout_seconds)
         if configured_timeout <= 0:
@@ -30,6 +36,10 @@ def install_openai_img_urls_patch(request_timeout_seconds: int | float = 600) ->
             f"url2img invalid request timeout {request_timeout_seconds!r}; using 600 seconds."
         )
         _REQUEST_TIMEOUT_SECONDS = 600.0
+    _TRIGGER_WORD = str(trigger_word or "").strip()
+    _TRIGGER_MODE = (
+        trigger_mode if trigger_mode in {"prefix", "suffix", "contains"} else "prefix"
+    )
 
     try:
         from astrbot.core.message.message_event_result import MessageChain
@@ -52,6 +62,15 @@ def install_openai_img_urls_patch(request_timeout_seconds: int | float = 600) ->
     @wraps(original_query)
     async def patched_query(self, payloads: dict, tools, *, request_max_retries=None):
         self._url2img_last_completion = None
+        is_image_request = _is_image_request(payloads)
+        if not is_image_request:
+            return await original_query(
+                self,
+                payloads,
+                tools,
+                request_max_retries=request_max_retries,
+            )
+
         _disable_openai_sdk_retries(self)
         _wrap_completion_create(self)
         try:
@@ -105,7 +124,6 @@ def install_openai_img_urls_patch(request_timeout_seconds: int | float = 600) ->
     @wraps(original_client_create)
     def patched_init(self, *args, **kwargs):
         original_client_create(self, *args, **kwargs)
-        _disable_openai_sdk_retries(self)
         _wrap_completion_create(self)
 
     setattr(ProviderOpenAIOfficial, _ORIGINAL_QUERY_ATTR, original_query)
@@ -168,7 +186,8 @@ def _wrap_completion_create(provider: Any) -> None:
         # AstrBot's provider defaults to 120 seconds. Image services often
         # finish just after that deadline, at which point their URL can no
         # longer reach the client. This affects waiting only, not retry count.
-        kwargs.setdefault("timeout", _REQUEST_TIMEOUT_SECONDS)
+        if _is_image_request({"messages": kwargs.get("messages", [])}):
+            kwargs.setdefault("timeout", _REQUEST_TIMEOUT_SECONDS)
         completion = await original_create(*args, **kwargs)
         _inject_img_urls_as_message_content(completion)
         provider._url2img_last_completion = completion
@@ -181,6 +200,47 @@ def _wrap_completion_create(provider: Any) -> None:
         completions.create = wrapped_create
     except Exception as exc:
         logger.warning(f"url2img failed to wrap OpenAI completions.create: {exc}")
+
+
+def _is_image_request(payloads: Any) -> bool:
+    """Return whether the latest user prompt matches the configured image trigger."""
+    prompt = _latest_user_text(payloads)
+    trigger = _TRIGGER_WORD
+    if not prompt or not trigger:
+        return False
+    if _TRIGGER_MODE == "suffix":
+        return prompt.rstrip().endswith(trigger)
+    if _TRIGGER_MODE == "contains":
+        return trigger in prompt
+    return prompt.lstrip().startswith(trigger)
+
+
+def _latest_user_text(payloads: Any) -> str:
+    if not isinstance(payloads, dict):
+        return ""
+    messages = payloads.get("messages")
+    if not isinstance(messages, Iterable) or isinstance(messages, (str, bytes)):
+        return ""
+
+    for message in reversed(list(messages)):
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, Iterable):
+            parts = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") in {
+                    "text",
+                    "input_text",
+                }:
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "\n".join(parts)
+        return ""
+    return ""
 
 
 def _extract_img_urls(completion: Any) -> list[str]:

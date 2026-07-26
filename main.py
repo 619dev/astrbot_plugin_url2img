@@ -51,7 +51,9 @@ class Url2ImgPlugin(Star):
             self.config.get(
                 "generation_timeout_seconds",
                 DEFAULT_GENERATION_TIMEOUT_SECONDS,
-            )
+            ),
+            self.config.get("trigger_word", "img"),
+            self.config.get("trigger_mode", "prefix"),
         )
 
     @filter.on_decorating_result()

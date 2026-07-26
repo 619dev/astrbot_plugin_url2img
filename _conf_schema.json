@@ -20,5 +20,22 @@
     "type": "int",
     "hint": "等待上游返回图片 URL 的最长时间。只发送一次请求，不会因延长等待而重试。建议 300～900 秒。",
     "default": 600
+  },
+  "trigger_word": {
+    "description": "画图触发词",
+    "type": "string",
+    "hint": "只有用户消息命中此触发词时，才启用生图失败兜底。留空表示不启用该兜底。",
+    "default": "img"
+  },
+  "trigger_mode": {
+    "description": "触发词匹配模式",
+    "type": "string",
+    "hint": "prefix=前缀，suffix=后缀，contains=包含。",
+    "options": [
+      "prefix",
+      "suffix",
+      "contains"
+    ],
+    "default": "prefix"
   }
 }
